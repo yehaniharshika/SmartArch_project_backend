@@ -1,168 +1,272 @@
 """
-SmartArch — services/rag_service.py
+SmartArch — services/RAG_service.py
 
-This file's job: take the room data we extracted (Step 9 of the
-pipeline) and make it SEARCHABLE by meaning, using ChromaDB.
+Stores extracted floor plan data into ChromaDB and retrieves
+relevant chunks when a client asks a question.
 
-Think of ChromaDB like a smart filing cabinet:
-  - We write each room's info on a "card" (a sentence)
-  - We file each card under a number-code that represents its MEANING
-  - When a client asks a question, we convert the question into the
-    same kind of number-code, and pull out the closest-matching cards
+HOW IT WORKS:
+  Store:    room data → text sentences → Gemini embeddings → ChromaDB
+  Retrieve: question  → Gemini embedding → similarity search → context chunks
 """
+import os
 import chromadb
-from config import Config
-from services.AI_provider_service import embed_text
+from chromadb.config import Settings
 
-# One ChromaDB client for the whole app, stored on disk at
-# the path set in Config.CHROMA_PATH (backend/vectorstore/)
-_chroma_client = chromadb.PersistentClient(path=Config.CHROMA_PATH)
+
+# ── ChromaDB persistent client ─────────────────────────────────
+_chroma_client = None
+
+
+def _get_client():
+    global _chroma_client
+    if _chroma_client is not None:
+        return _chroma_client
+
+    persist_dir = os.getenv("VECTORSTORE_DIR", "vectorstore")
+    os.makedirs(persist_dir, exist_ok=True)
+
+    _chroma_client = chromadb.PersistentClient(
+        path=persist_dir,
+        settings=Settings(anonymized_telemetry=False),
+    )
+    print(f"[RAG] ChromaDB client ready — {persist_dir}")
+    return _chroma_client
 
 
 def _get_collection(project_id: str):
-    """
-    Each floor plan gets its OWN ChromaDB "collection" (like a separate
-    folder), named after its project_id. This keeps Kitchen data from
-    "PRJ-AAA111" from ever mixing with Kitchen data from "PRJ-BBB222".
-    """
-    collection_name = f"plan_{project_id.replace('-', '_').lower()}"
-    return _chroma_client.get_or_create_collection(name=collection_name)
+    """Each project gets its own ChromaDB collection."""
+    client = _get_client()
+    name = f"plan_{project_id.replace('-', '_').lower()}"
+    return client.get_or_create_collection(
+        name=name,
+        metadata={"hnsw:space": "cosine"},
+    )
 
 
-# ══════════════════════════════════════════════════════════
-# STORE — called right after analysis finishes (Step 9 → Step 11)
-# ══════════════════════════════════════════════════════════
+# ── Gemini Embedding ───────────────────────────────────────────
+def _embed(texts: list, task_type: str = "RETRIEVAL_DOCUMENT") -> list:
+    """Converts text list to embedding vectors using Gemini."""
+    from google import genai
+    from google.genai import types
+
+    api_key    = os.getenv("GEMINI_API_KEY")
+    embed_model= os.getenv("GEMINI_EMBED_MODEL", "models/text-embedding-004")
+    client     = genai.Client(api_key=api_key)
+
+    embeddings = []
+    for text in texts:
+        result = client.models.embed_content(
+            model=embed_model,
+            contents=text,
+            config=types.EmbedContentConfig(task_type=task_type),
+        )
+        embeddings.append(result.embeddings[0].values)
+    return embeddings
+
+
+# ── STORE — called right after analysis finishes ───────────────
 def store_floor_plan_data(project_id: str, project_name: str,
                           rooms: list, total_area_sqft: float,
                           detections: list) -> int:
     """
-    Converts room data into searchable "documents" and stores them
-    in ChromaDB. Returns the number of documents stored.
-
-    rooms = the list Gemini gave us, e.g.
-      [{"name": "Kitchen", "width_ft_in": "11' 6\"",
-        "length_ft_in": "9' 2\"", "area_sqft": 105.4, ...}, ...]
+    Converts room/detection data into text sentences and stores
+    them in ChromaDB with Gemini embeddings.
+    Returns number of documents stored.
     """
     collection = _get_collection(project_id)
 
-    documents  = []   # the actual sentences
-    ids        = []   # unique ID for each sentence
-    metadatas  = []    # extra tags (which room, which project)
+    # Clear old data for this project (handles re-uploads)
+    existing = collection.get()
+    if existing["ids"]:
+        collection.delete(ids=existing["ids"])
 
-    # ── One document per room ───────────────────────────────
+    documents = []
+    ids       = []
+    metadatas = []
+
+    # ── Per-room documents ─────────────────────────────────────
     for i, room in enumerate(rooms):
-        name   = room.get("name", "Unknown Room")
-        w_ft   = room.get("width_ft_in", "unknown")
-        l_ft   = room.get("length_ft_in", "unknown")
-        w_m    = room.get("width_m", "unknown")
-        l_m    = room.get("length_m", "unknown")
-        sqft   = room.get("area_sqft", 0)
-        sqm    = room.get("area_sqm", 0)
-        floor  = room.get("floor", "Ground")
-        notes  = room.get("notes", "")
+        name    = room.get("name", f"Room {i+1}")
+        w_ft    = room.get("width_ft_in",  "unknown")
+        h_ft    = room.get("height_ft_in", "unknown")
+        w_m     = room.get("width_m",  0)
+        h_m     = room.get("height_m", 0)
+        sqft    = room.get("area_sqft", 0)
+        sqm     = room.get("area_sqm",  0)
+        rtype   = room.get("room_type", "room")
+        source  = room.get("dimension_source", "")
+        notes   = room.get("notes", "")
 
         sentence = (
-            f"{name} is located on the {floor} floor. "
-            f"The width of {name} is {w_ft} ({w_m} meters) and "
-            f"the length of {name} is {l_ft} ({l_m} meters). "
-            f"The total area of {name} is {sqft} square feet "
-            f"({sqm} square meters)."
+            f"{name} is a {rtype}. "
+            f"Its width is {w_ft} ({w_m} meters) and "
+            f"its length is {h_ft} ({h_m} meters). "
+            f"The area of {name} is {sqft} square feet ({sqm} square meters)."
         )
+
+        if source == "ocr_exact_match":
+            sentence += " Dimensions were read directly from the plan."
+        elif source == "wall_geometry_estimate":
+            sentence += " Dimensions were estimated from wall geometry."
+        elif source == "unmatched":
+            sentence += " Exact dimensions could not be determined."
+
         if notes:
-            sentence += f" Note: {notes}."
+            sentence += f" Note: {notes}"
 
         documents.append(sentence)
         ids.append(f"{project_id}_room_{i}")
         metadatas.append({
             "project_id": project_id,
-            "room_name": name,
-            "type": "room",
+            "room_name":  name,
+            "type":       "room",
         })
 
-    # ── One document for the total area ─────────────────────
-    if total_area_sqft:
+    # ── Total area document ────────────────────────────────────
+    if total_area_sqft and total_area_sqft > 0:
+        total_sqm = round(total_area_sqft * 0.092903, 2)
         documents.append(
-            f"The total floor area of the entire {project_name} plan "
-            f"is {total_area_sqft} square feet."
+            f"The total floor area of the {project_name} floor plan is "
+            f"{total_area_sqft} square feet ({total_sqm} square meters)."
         )
         ids.append(f"{project_id}_total_area")
         metadatas.append({"project_id": project_id, "type": "total_area"})
 
-    # ── One document per door (for "is the door position good?" questions) ──
-    doors = [d for d in detections if d.label == "door"]
-    for i, door in enumerate(doors):
-        sentence = (
-            f"There is a door with width {door.width_m} meters "
-            f"and height {door.height_m} meters."
-        )
-        documents.append(sentence)
-        ids.append(f"{project_id}_door_{i}")
-        metadatas.append({"project_id": project_id, "type": "door"})
+    # ── Structural counts document ─────────────────────────────
+    if detections:
+        # detections can be DetectionDTO objects or dicts
+        def get_label(d):
+            return d.label if hasattr(d, "label") else d.get("label", "")
 
-    # ── One document for door/window counts ─────────────────
-    documents.append(
-        f"This floor plan has {len(doors)} doors and "
-        f"{len([d for d in detections if d.label == 'window'])} windows in total."
-    )
-    ids.append(f"{project_id}_counts")
-    metadatas.append({"project_id": project_id, "type": "counts"})
+        doors   = sum(1 for d in detections if get_label(d) == "door")
+        windows = sum(1 for d in detections if get_label(d) == "window")
+        walls   = sum(1 for d in detections if get_label(d) == "wall")
+
+        documents.append(
+            f"This floor plan has {len(rooms)} rooms, {doors} doors, "
+            f"{windows} windows, and {walls} wall segments detected."
+        )
+        ids.append(f"{project_id}_structural")
+        metadatas.append({"project_id": project_id, "type": "structural"})
+
+    # ── Design suggestions document ────────────────────────────
+    suggestions = _build_design_suggestions(rooms, project_name)
+    if suggestions:
+        documents.append(suggestions)
+        ids.append(f"{project_id}_design")
+        metadatas.append({"project_id": project_id, "type": "design"})
 
     if not documents:
-        print(f"[RAG] No room data to store for {project_id}")
+        print(f"[RAG] No documents to store for {project_id}")
         return 0
 
-    # ── Convert every sentence into numbers (embeddings) ────
     print(f"[RAG] Embedding {len(documents)} documents for {project_id} ...")
-    embeddings = [embed_text(doc, task_type="retrieval_document") for doc in documents]
+    embeddings = _embed(documents, task_type="RETRIEVAL_DOCUMENT")
 
-    # ── Save into ChromaDB ───────────────────────────────────
     collection.add(
-        ids=ids,
         documents=documents,
         embeddings=embeddings,
+        ids=ids,
         metadatas=metadatas,
     )
 
-    print(f"[RAG] ✅ Stored {len(documents)} documents in ChromaDB for {project_id}")
+    print(f"[RAG] ✅ Stored {len(documents)} documents for {project_id}")
     return len(documents)
 
 
-# ══════════════════════════════════════════════════════════
-# SEARCH — called when a client asks a question
-# ══════════════════════════════════════════════════════════
-def search_floor_plan_data(project_id: str, question: str, top_k: int = 3) -> str:
+def _build_design_suggestions(rooms: list, project_name: str) -> str:
+    """Builds a design suggestions text chunk based on extracted rooms."""
+    if not rooms:
+        return ""
+
+    suggestions = [f"Design suggestions for the {project_name} floor plan:"]
+
+    bedrooms = [r for r in rooms if r.get("room_type") == "bedroom"]
+    bathrooms= [r for r in rooms if r.get("room_type") == "bathroom"]
+    kitchens = [r for r in rooms if r.get("room_type") == "kitchen"]
+    living   = [r for r in rooms if r.get("room_type") == "living"]
+
+    if bedrooms:
+        suggestions.append(
+            f"There are {len(bedrooms)} bedroom(s). "
+            "Bedrooms should be positioned away from high-traffic areas "
+            "for better privacy and noise reduction."
+        )
+
+    if bathrooms:
+        suggestions.append(
+            f"The plan has {len(bathrooms)} bathroom(s). "
+            "Bathrooms should ideally be adjacent to bedrooms and near "
+            "plumbing access points for cost efficiency."
+        )
+
+    if kitchens:
+        suggestions.append(
+            "The kitchen should have adequate ventilation and natural light. "
+            "Position it near the dining area to improve workflow efficiency."
+        )
+
+    if living:
+        suggestions.append(
+            "The living area should receive maximum natural light. "
+            "Consider large windows or an open-plan layout for better airflow."
+        )
+
+    small_rooms = [
+        r for r in rooms
+        if 0 < r.get("area_sqft", 0) < 80
+    ]
+    if small_rooms:
+        names = ", ".join(r.get("name", "room") for r in small_rooms)
+        suggestions.append(
+            f"The following rooms are relatively small (under 80 sq ft): {names}. "
+            "Consider built-in storage and space-saving furniture designs."
+        )
+
+    return " ".join(suggestions)
+
+
+# ── SEARCH — called when client asks a question ────────────────
+def search_floor_plan_data(project_id: str, question: str,
+                           top_k: int = 3) -> str:
     """
-    Converts the client's question into numbers, finds the closest-
-    matching stored sentences, and returns them joined as one block
-    of text (this becomes the "context" given to Gemini for the
-    final answer).
+    Embeds the question, searches ChromaDB for the most relevant
+    floor plan data, and returns it as a single context string
+    for the LLM to use when generating an answer.
     """
     try:
         collection = _get_collection(project_id)
+        count = collection.count()
+        if count == 0:
+            print(f"[RAG] No data in collection for {project_id}")
+            return ""
+
+        query_embedding = _embed([question], task_type="RETRIEVAL_QUERY")[0]
+
+        results = collection.query(
+            query_embeddings=[query_embedding],
+            n_results=min(top_k, count),
+        )
+
+        docs = results.get("documents", [[]])[0]
+        if not docs:
+            return ""
+
+        print(f"[RAG] Retrieved {len(docs)} chunks for: '{question}'")
+        return "\n".join(docs)
+
     except Exception as e:
-        print(f"[RAG] Collection not found for {project_id}: {e}")
+        print(f"[RAG] Search failed for {project_id}: {e}")
         return ""
 
-    question_embedding = embed_text(question, task_type="retrieval_query")
 
-    results = collection.query(
-        query_embeddings=[question_embedding],
-        n_results=top_k,
-    )
-
-    matched_documents = results.get("documents", [[]])[0]
-    if not matched_documents:
-        return ""
-
-    print(f"[RAG] Found {len(matched_documents)} matching documents for question: '{question}'")
-    return "\n".join(matched_documents)
-
-
+# ── DELETE — called when project is deleted ────────────────────
 def delete_floor_plan_data(project_id: str) -> None:
-    """Called when a project is deleted — cleans up its ChromaDB collection too."""
+    """Removes the ChromaDB collection for a deleted project."""
     try:
-        collection_name = f"plan_{project_id.replace('-', '_').lower()}"
-        _chroma_client.delete_collection(name=collection_name)
-        print(f"[RAG] Deleted ChromaDB collection for {project_id}")
+        client = _get_client()
+        name = f"plan_{project_id.replace('-', '_').lower()}"
+        client.delete_collection(name=name)
+        print(f"[RAG] Deleted collection for {project_id}")
     except Exception as e:
-        print(f"[RAG] Could not delete collection (may not exist): {e}")
+        print(f"[RAG] Could not delete collection: {e}")

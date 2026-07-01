@@ -3,11 +3,12 @@ import sys
 os.environ["TORCH_FORCE_WEIGHTS_ONLY_LOAD"] = "0"
 sys.path.insert(0, os.path.dirname(__file__))
 from flask import Flask, jsonify
-from flask_cors import CORS
+from flask_cors import CORS  # type: ignore[import-not-found]
 from config import Config
 from db.database import db, init_db
 from controllers.User_controller import auth_bp
 from controllers.FloorPlan_controller import floor_plan_bp
+from controllers.Chat_controller import chat_bp
 
 def create_app():
     app = Flask(__name__)
@@ -24,7 +25,7 @@ def create_app():
     # User routes
     app.register_blueprint(auth_bp)
     app.register_blueprint(floor_plan_bp)
-
+    app.register_blueprint(chat_bp)
 
     with app.app_context():
         from entity.User_entity import User

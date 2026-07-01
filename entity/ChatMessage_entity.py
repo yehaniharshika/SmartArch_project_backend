@@ -5,29 +5,23 @@ from db import db
 class ChatMessage(db.Model):
     __tablename__ = "chat_logs"
 
-    id          = db.Column(db.Integer,    primary_key=True, autoincrement=True)
-
-    # Foreign key → projects
-    project_id  = db.Column(db.String(20),
-                            db.ForeignKey("floor_plan_projects.id", ondelete="CASCADE"),
-                            nullable=False, index=True)
-
-    # Chat content
-    query       = db.Column(db.Text, nullable=False)   # client's question
-    answer      = db.Column(db.Text, nullable=False)   # AI answer
-
-    # Optional: language detection (for future multilingual support)
-    language    = db.Column(db.String(10), nullable=True, default="en")
-
-    # Response metadata
-    model_used  = db.Column(db.String(50), nullable=True)   # "gpt-4o"
-    tokens_used = db.Column(db.Integer,    nullable=True)
-
-    created_at  = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
+    id         = db.Column(db.Integer, primary_key=True, autoincrement=True)
+    project_id = db.Column(
+        db.String(20),
+        db.ForeignKey("floor_plan_projects.id", ondelete="CASCADE"),
+        nullable=False, index=True,
+    )
+    query      = db.Column(db.Text, nullable=False)
+    answer     = db.Column(db.Text, nullable=False)
+    language   = db.Column(db.String(10), nullable=True, default="en")
+    model_used = db.Column(db.String(50), nullable=True)
+    tokens_used= db.Column(db.Integer,   nullable=True)
+    created_at = db.Column(db.DateTime, nullable=False, default=datetime.utcnow)
 
     def to_dict(self):
         return {
             "id":          self.id,
+            "project_id":  self.project_id,
             "query":       self.query,
             "answer":      self.answer,
             "language":    self.language,

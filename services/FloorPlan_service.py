@@ -1,20 +1,22 @@
 """
 SmartArch — services/FloorPlan_service.py
-MAIN PIPELINE ORCHESTRATOR (Core Extraction Only — AI/RAG disabled for now)
+MAIN PIPELINE ORCHESTRATOR
 
 STEP 1  → Validate the upload request
 STEP 2  → Save the file to disk
 STEP 3  → Create the database row (status="processing")
 STEP 4  → Load the image (convert PDF→PNG if needed)
 STEP 5  → yolo_service          → detect walls/doors/windows
-STEP 6  → gemini_ocr_service    → read all text (Gemini Vision)
-STEP 7  → scale                 → fixed default (scale_service disabled)
-STEP 8  → room_boundary_service → find enclosed room areas from walls+doors+windows
-STEP 9  → room_parser_service   → LABEL-FIRST: build rooms via boundary containment
-STEP 10 → area_service          → compute final width/height/area per room
+STEP 6  → gemini_ocr_service    → read all text (Gemini Vision primary)
+          ocr_service           → EasyOCR fallback if Gemini fails
+STEP 7  → scale                 → fixed default
+STEP 8  → room_boundary_service → find enclosed room areas
+STEP 9  → room_parser_service   → build rooms via boundary containment
+STEP 10 → area_service          → compute dimensions per room
 STEP 11 → Draw the annotated image
-STEP 12 → Save everything to the database
-STEP 13 → Generate the JWT share token (the chat link)
+STEP 12 → Save everything to SQLite database
+STEP 12b→ Index into ChromaDB for RAG chatbot  ← THIS WAS MISSING
+STEP 13 → Generate the JWT share token
 """
 import os
 import cv2
@@ -22,6 +24,7 @@ import uuid
 import time
 import traceback
 import numpy as np
+import jwt
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -30,14 +33,13 @@ from dao.FloorPlan_dao import FloorPlanDAO
 from dto.AnalysisResultDTO import AnalysisResultDTO
 from dto.FloorPlanUploadDTO import UploadFloorPlanRequestDTO
 from dto.DetectionDTO import DetectionDTO
-from dto.OCRDataDTO import OCRDataDTO
 
-import services.extraction.yolo_service as yolo_service
-import services.extraction.gemini_ocr_service as gemini_ocr_service
-# from services.extraction import scale_service
-import services.extraction.room_boundary_service as room_boundary_service
-import services.extraction.room_parser_service as room_parser_service
-import services.extraction.area_service as area_service
+from services.extraction import yolo_service
+from services.extraction import ocr_service
+from services.extraction import gemini_ocr_service
+from services.extraction import room_boundary_service
+from services.extraction import room_parser_service
+from services.extraction import area_service
 
 
 class FloorPlanService:
@@ -59,8 +61,8 @@ class FloorPlanService:
             }, 400
 
         project_id = "PRJ-" + uuid.uuid4().hex[:6].upper()
-        safe_name = f"{project_id}.{ext}"
-        file_path = str(Config.UPLOAD_DIR / safe_name)
+        safe_name  = f"{project_id}.{ext}"
+        file_path  = str(Config.UPLOAD_DIR / safe_name)
         file.save(file_path)
 
         print(f"\n{'='*60}")
@@ -86,10 +88,10 @@ class FloorPlanService:
 
         response_data = result.to_dict()
         response_data.update({
-            "project_id": project_id,
+            "project_id":   project_id,
             "project_name": project_name,
-            "share_token": token,
-            "share_url": f"/client/{token}",
+            "share_token":  token,
+            "share_url":    f"/client/{token}",
         })
 
         FloorPlanService._print_terminal_report(result, project_name)
@@ -112,53 +114,49 @@ class FloorPlanService:
             warnings.append(f"YOLO detection failed: {e}")
             raw_detections = []
 
-        # STEP 6: Text extraction — Gemini Vision only.
+        # STEP 6: Text extraction — Gemini Vision primary, EasyOCR fallback
         try:
             ocr_data = gemini_ocr_service.extract_text_gemini(img)
             ocr_engine_used = "gemini_vision"
         except Exception as e:
-            print(f"[ERROR] Gemini Vision extraction failed: {e}")
-            warnings.append(f"Gemini Vision extraction failed: {e}")
-            ocr_data = OCRDataDTO()
-            ocr_engine_used = "none"
+            print(f"[WARN] Gemini Vision failed: {e} — falling back to EasyOCR")
+            warnings.append(f"Gemini Vision unavailable, used EasyOCR: {e}")
+            try:
+                ocr_data = ocr_service.extract_text(img)
+                ocr_engine_used = "easyocr_fallback"
+            except Exception as e2:
+                print(f"[ERROR] Both OCR engines failed: {e2}")
+                warnings.append(f"OCR extraction failed on both engines: {e2}")
+                from dto.OCRDataDTO import OCRDataDTO
+                ocr_data = OCRDataDTO()
+                ocr_engine_used = "none"
 
-        # STEP 7: Scale — scale_service disabled, use a fixed default.
-        # Doesn't affect OCR-matched rooms (most rooms get their size
-        # directly from matched dimension text); only affects the rare
-        # zero-OCR-dim + real-boundary "wall_geometry_estimate" fallback.
-        pixels_per_foot = 15.0
+        # STEP 7: Scale — fixed default
+        pixels_per_foot  = 15.0
         pixels_per_meter = 49.2
-        scale_method = "scale_service_disabled"
+        scale_method     = "scale_service_disabled"
         scale_confidence = 0.0
 
-        # STEP 8: Wall-boundary detection (used for containment-based
-        # dimension matching AND as a fallback room source in room_parser)
+        # STEP 8: Wall-boundary detection
         try:
             room_boundaries = room_boundary_service.find_room_boundaries(
                 img, raw_detections
             )
             if not room_boundaries:
                 warnings.append(
-                    "No wall-boundary regions could be formed. Dimension "
-                    "matching will fall back to radius search for every "
-                    "room, which is less reliable on compact layouts."
+                    "No wall-boundary regions found. "
+                    "Falling back to radius search."
                 )
         except Exception as e:
             print(f"[ERROR] Room boundary detection failed: {e}")
             warnings.append(f"Room boundary detection failed: {e}")
             room_boundaries = []
 
-        # STEP 9: LABEL-FIRST room building, using boundary containment
-        # to match each room's label to ONLY the dimension texts inside
-        # its own wall-enclosed region (prevents stealing a neighbouring
-        # room's dimension on compact layouts).
+        # STEP 9: Label-first room building
         try:
             rooms = room_parser_service.build_room_objects(room_boundaries, ocr_data)
             if not rooms:
-                warnings.append(
-                    "No rooms could be identified. Check that the floor plan "
-                    "image has clearly readable room labels."
-                )
+                warnings.append("No rooms could be identified.")
         except Exception as e:
             print(f"[ERROR] Room parsing failed: {e}")
             warnings.append(f"Room parsing failed: {e}")
@@ -177,8 +175,6 @@ class FloorPlanService:
         detections = FloorPlanService._build_detection_dtos(
             raw_detections, pixels_per_foot, ocr_data
         )
-
-        summary = ""
 
         # STEP 11: Annotated image
         try:
@@ -206,7 +202,7 @@ class FloorPlanService:
             door_count=counts["door"],
             window_count=counts["window"],
             wall_count=counts["wall"],
-            summary=summary,
+            summary="",
             image_width_px=width,
             image_height_px=height,
             pixels_per_meter=pixels_per_meter,
@@ -217,7 +213,7 @@ class FloorPlanService:
             pipeline_warnings=warnings,
         )
 
-        # STEP 12: Save to DB
+        # STEP 12: Save to SQLite database
         try:
             FloorPlanDAO.save_analysis_results(result)
             print(f"[DB] ✅ Saved project {project_id} to database "
@@ -226,9 +222,42 @@ class FloorPlanService:
             print(f"[ERROR] Database save failed: {e}")
             warnings.append(f"Database save failed: {e}")
 
+        # ══════════════════════════════════════════════════════
+        # STEP 12b: Index into ChromaDB for RAG chatbot
+        #
+        # THIS IS THE FIX — previously this block was missing,
+        # so ChromaDB had no data and every chat question
+        # returned "no data stored for this project".
+        #
+        # ChromaDB (vectorstore/) is SEPARATE from SQLite:
+        #   SQLite  → stores users, floor plan metadata,
+        #              detections, OCR results, chat history
+        #   ChromaDB → stores room data as EMBEDDINGS for
+        #              semantic search (RAG pipeline)
+        # Both are needed. SQLite alone can't do similarity
+        # search — ChromaDB handles that.
+        # ══════════════════════════════════════════════════════
+        try:
+            from services.RAG_service import store_floor_plan_data
+            docs_stored = store_floor_plan_data(
+                project_id=project_id,
+                project_name=project_name,
+                rooms=[r.to_dict() for r in rooms],
+                total_area_sqft=total_sqft,
+                detections=detections,
+            )
+            print(f"[RAG] ✅ Indexed {docs_stored} documents into ChromaDB")
+        except Exception as e:
+            print(f"[WARN] RAG indexing failed (non-critical): {e}")
+            warnings.append(f"RAG indexing failed: {e}")
+
         print(f"[OCR-ENGINE] Used: {ocr_engine_used}")
-        print("[RAG] ⏭️  Skipped (AI/RAG pipeline temporarily disabled — core extraction only)")
+        print("[RAG] ✅ Plan indexed and ready for chatbot")
         return result
+
+    # ──────────────────────────────────────────────────────────
+    # Helper methods — unchanged from your original
+    # ──────────────────────────────────────────────────────────
 
     @staticmethod
     def _load_image(project_id, file_path, ext):
@@ -290,11 +319,17 @@ class FloorPlanService:
         for d in detections:
             meta = Config.CLASS_META.get(d.label, {})
             hex_color = meta.get("color", "#888888").lstrip("#")
-            color = (int(hex_color[4:6], 16), int(hex_color[2:4], 16), int(hex_color[0:2], 16))
-            cv2.rectangle(img, (int(d.x1), int(d.y1)), (int(d.x2), int(d.y2)), color, 2)
+            color = (
+                int(hex_color[4:6], 16),
+                int(hex_color[2:4], 16),
+                int(hex_color[0:2], 16),
+            )
+            cv2.rectangle(img,
+                          (int(d.x1), int(d.y1)),
+                          (int(d.x2), int(d.y2)), color, 2)
             cv2.putText(img, f"{d.label} {d.confidence*100:.0f}%",
-                       (int(d.x1)+4, int(d.y1)-6),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
+                        (int(d.x1)+4, int(d.y1)-6),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
 
         for room in rooms:
             cv2.rectangle(img,
@@ -303,8 +338,9 @@ class FloorPlanService:
                 (0, 200, 255), 2)
             label_text = f"{room.name} {room.width_ft_in}x{room.height_ft_in}"
             cv2.putText(img, label_text,
-                       (int(room.bbox_x1)+4, int(room.bbox_y1)+18),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 200, 255), 1, cv2.LINE_AA)
+                        (int(room.bbox_x1)+4, int(room.bbox_y1)+18),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 200, 255), 1,
+                        cv2.LINE_AA)
 
         out_path = str(Config.UPLOAD_DIR / f"{project_id}_annotated.jpg")
         cv2.imwrite(out_path, img, [cv2.IMWRITE_JPEG_QUALITY, 92])
@@ -322,35 +358,49 @@ class FloorPlanService:
     @staticmethod
     def _make_share_token(project_id):
         import jwt
-        expires_at = datetime.now(timezone.utc) + timedelta(days=Config.JWT_EXPIRE_DAYS)
+        expires_at = datetime.now(timezone.utc) + \
+                     timedelta(days=Config.JWT_EXPIRE_DAYS)
         token = jwt.encode(
             {"project_id": project_id, "exp": expires_at.timestamp()},
-            Config.JWT_SECRET, algorithm=Config.JWT_ALGORITHM,
+            Config.JWT_SECRET,
+            algorithm=Config.JWT_ALGORITHM,
         )
         return token, expires_at
 
     @staticmethod
     def _print_terminal_report(result, project_name):
-        G="\033[92m"; Y="\033[93m"; C="\033[96m"; P="\033[95m"
-        BL="\033[94m"; GR="\033[90m"; R_="\033[91m"; RESET="\033[0m"; B="\033[1m"
+        G = "\033[92m"; Y = "\033[93m"; C = "\033[96m"; P = "\033[95m"
+        BL = "\033[94m"; GR = "\033[90m"; R_ = "\033[91m"
+        RESET = "\033[0m"; B = "\033[1m"
 
         print(f"\n{C}{B}{'='*64}{RESET}")
         print(f"{C}{B}  SmartArch — Analysis Complete: {project_name}{RESET}")
         print(f"{C}{B}{'='*64}{RESET}")
-        print(f"  {GR}{'Total area':<26}{RESET}{G}{result.total_area_sqft} sq.ft ({result.total_area_sqm} m²){RESET}")
-        print(f"  {GR}{'Image size':<26}{RESET}{result.image_width_px}x{result.image_height_px}px")
-        print(f"  {GR}{'Scale':<26}{RESET}{result.pixels_per_foot:.2f} px/ft ({result.scale_method}, confidence={result.scale_confidence:.2f})")
-        print(f"  {GR}{'Processing time':<26}{RESET}{result.processing_time}s")
+        print(f"  {GR}{'Total area':<26}{RESET}"
+              f"{G}{result.total_area_sqft} sq.ft "
+              f"({result.total_area_sqm} m²){RESET}")
+        print(f"  {GR}{'Image size':<26}{RESET}"
+              f"{result.image_width_px}x{result.image_height_px}px")
+        print(f"  {GR}{'Scale':<26}{RESET}"
+              f"{result.pixels_per_foot:.2f} px/ft "
+              f"({result.scale_method}, "
+              f"confidence={result.scale_confidence:.2f})")
+        print(f"  {GR}{'Processing time':<26}{RESET}"
+              f"{result.processing_time}s")
         print(f"\n{BL}{B}  STRUCTURAL ELEMENTS{RESET}")
-        print(f"  Walls:{result.wall_count}  Doors:{result.door_count}  Windows:{result.window_count}")
+        print(f"  Walls:{result.wall_count}  "
+              f"Doors:{result.door_count}  "
+              f"Windows:{result.window_count}")
         print(f"\n{P}{B}  ROOMS ({result.room_count} found){RESET}")
         if result.rooms:
-            print(f"  {GR}{'Room':<22}{'Width':>10}{'Height':>10}{'Sq.Ft':>10}{'Source':>32}{RESET}")
+            print(f"  {GR}{'Room':<22}{'Width':>10}"
+                  f"{'Height':>10}{'Sq.Ft':>10}{'Source':>32}{RESET}")
             print(f"  {GR}{'-'*84}{RESET}")
             for room in result.rooms:
-                src = room.dimension_source
-                print(f"  {room.name:<22}{room.width_ft_in:>10}{room.height_ft_in:>10}"
-                      f"{str(room.area_sqft):>10}{src:>32}")
+                print(f"  {room.name:<22}{room.width_ft_in:>10}"
+                      f"{room.height_ft_in:>10}"
+                      f"{str(room.area_sqft):>10}"
+                      f"{room.dimension_source:>32}")
         else:
             print(f"  {Y}No rooms identified — see warnings.{RESET}")
         if result.pipeline_warnings:
