@@ -1,0 +1,18 @@
+flask==3.0.3
+flask-cors==4.0.1
+ultralytics==8.2.48
+opencv-python-headless==4.10.0.84
+Pillow==10.4.0
+numpy==1.26.4
+PyMuPDF==1.24.9
+easyocr==1.7.1
+openai==1.40.0
+chromadb==0.5.3
+python-jose==3.3.0
+python-dotenv==1.0.1
+colorama==0.4.6
+scipy==1.13.1
+
+# Gemini Vision integration
+google-genai==2.10.0
+requests==2.32.3
