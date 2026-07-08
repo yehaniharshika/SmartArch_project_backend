@@ -7,10 +7,15 @@ relevant chunks when a client asks a question.
 HOW IT WORKS:
   Store:    room data → text sentences → Gemini embeddings → ChromaDB
   Retrieve: question  → Gemini embedding → similarity search → context chunks
+
+NOTE: "models/text-embedding-004" was retired by Google (404 NOT_FOUND on
+embedContent). The current supported embedding model id is
+"gemini-embedding-001" — set via GEMINI_EMBED_MODEL in .env, with that
+value used as the code-level fallback too.
 """
 import os
-import chromadb
-from chromadb.config import Settings
+import chromadb  # type: ignore[import-not-found]
+from chromadb.config import Settings  # type: ignore[reportMissingImports, import-not-found]
 
 
 # ── ChromaDB persistent client ─────────────────────────────────
@@ -49,9 +54,9 @@ def _embed(texts: list, task_type: str = "RETRIEVAL_DOCUMENT") -> list:
     from google import genai
     from google.genai import types
 
-    api_key    = os.getenv("GEMINI_API_KEY")
-    embed_model= os.getenv("GEMINI_EMBED_MODEL", "models/text-embedding-004")
-    client     = genai.Client(api_key=api_key)
+    api_key     = os.getenv("GEMINI_API_KEY")
+    embed_model = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
+    client      = genai.Client(api_key=api_key)
 
     embeddings = []
     for text in texts:

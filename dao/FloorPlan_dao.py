@@ -163,7 +163,7 @@ class FloorPlanDAO:
                           model_used: str = "gpt-4o") -> ChatMessage:
         msg = ChatMessage(
             project_id = project_id,
-            query      = query,
+            question   = query,
             answer     = answer,
             language   = language,
             model_used = model_used,

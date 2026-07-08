@@ -69,12 +69,15 @@ def embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list:
     task_type options:
       "RETRIEVAL_DOCUMENT" — for storing floor plan data
       "RETRIEVAL_QUERY"    — for embedding client questions
+
+    NOTE: "text-embedding-004" / "embedding-001" were retired by Google.
+    The current supported embedding model is "gemini-embedding-001".
     """
     from google import genai
     from google.genai import types
 
     api_key     = os.getenv("GEMINI_API_KEY")
-    embed_model = os.getenv("GEMINI_EMBED_MODEL", "models/text-embedding-004")
+    embed_model = os.getenv("GEMINI_EMBED_MODEL", "gemini-embedding-001")
 
     if not api_key:
         raise RuntimeError("GEMINI_API_KEY not set in .env")
