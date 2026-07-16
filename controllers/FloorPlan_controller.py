@@ -88,9 +88,7 @@ def upload_and_analyze():
     return jsonify(result), status_code
 
 
-# ══════════════════════════════════════════════════════════
 # CONTROLLER 2 — Get Full Result by project_id
-# ══════════════════════════════════════════════════════════
 @floor_plan_bp.route("/<string:project_id>", methods=["GET"])
 @token_required
 def get_floor_plan(project_id: str):
@@ -99,11 +97,10 @@ def get_floor_plan(project_id: str):
     Headers: Authorization: Bearer <token>
     Returns full analysis result for a project.
 
-    ── Postman ──────────────────────────────────────────────
+    Postman 
     Method  : GET
     URL     : http://localhost:5000/api/floor-plan/PRJ-AB1C2D
     Headers : Authorization: Bearer <token>
-    ─────────────────────────────────────────────────────────
     """
     fp = FloorPlanDAO.get_by_id(project_id)
     if not fp:
@@ -127,9 +124,7 @@ def get_floor_plan(project_id: str):
     }), 200
 
 
-# ══════════════════════════════════════════════════════════
 # CONTROLLER 3 — List All Plans for the Logged-In User
-# ══════════════════════════════════════════════════════════
 @floor_plan_bp.route("/my-plans", methods=["GET"])
 @token_required
 def get_user_plans():
@@ -139,11 +134,10 @@ def get_user_plans():
     Returns all floor plans uploaded by the LOGGED-IN user (from token),
     newest first.
 
-    ── Postman ──────────────────────────────────────────────
+    Postman
     Method  : GET
     URL     : http://localhost:5000/api/floor-plan/my-plans
     Headers : Authorization: Bearer <token>
-    ─────────────────────────────────────────────────────────
     """
     plans = FloorPlanDAO.get_by_user(g.user_id)
     return jsonify({
@@ -155,7 +149,6 @@ def get_user_plans():
 
 # ══════════════════════════════════════════════════════════
 # CONTROLLER 4 — Delete a Floor Plan
-# ══════════════════════════════════════════════════════════
 @floor_plan_bp.route("/<string:project_id>", methods=["DELETE"])
 @token_required
 def delete_floor_plan(project_id: str):

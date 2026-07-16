@@ -68,6 +68,9 @@ class FloorPlan(db.Model):
                                     uselist=False, cascade="all, delete-orphan")
     chat_messages = db.relationship("ChatMessage", backref="project",
                                     lazy=True,    cascade="all, delete-orphan")
+    
+    rooms = db.relationship("Room", backref="project",
+                            lazy=True, cascade="all, delete-orphan")
 
     def to_dict(self):
         return {
