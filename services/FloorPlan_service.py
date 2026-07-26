@@ -114,13 +114,13 @@ class FloorPlanService:
             warnings.append(f"YOLO detection failed: {e}")
             raw_detections = []
 
-        # STEP 6: Text extraction — Gemini Vision primary, EasyOCR fallback
+        # STEP 6: Text extraction
         try:
-            ocr_data = trained_ocr_service.extract_text_gemini(img)
-            ocr_engine_used = "gemini_vision"
+            ocr_data = trained_ocr_service.extract_text(img)
+            ocr_engine_used = "trained_ocr"
         except Exception as e:
-            print(f"[WARN] Gemini Vision failed: {e} — falling back to EasyOCR")
-            warnings.append(f"Gemini Vision unavailable, used EasyOCR: {e}")
+            print(f"[WARN] OCR failed: {e} — falling back to EasyOCR")
+            warnings.append(f"OCR failed, used EasyOCR: {e}")
             try:
                 ocr_data = ocr_service.extract_text(img)
                 ocr_engine_used = "easyocr_fallback"

@@ -88,7 +88,7 @@ Return ONLY valid JSON with NO markdown, NO backticks, in exactly this structure
 """
 
 
-def extract_text_gemini(img) -> OCRDataDTO:
+def extract_text(img) -> OCRDataDTO:
     """
     Main entry point — same contract as ocr_service.extract_text(img).
     Takes numpy BGR image, returns OCRDataDTO.

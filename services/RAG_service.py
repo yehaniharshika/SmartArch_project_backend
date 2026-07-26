@@ -18,7 +18,7 @@ import chromadb  # type: ignore[import-not-found]
 from chromadb.config import Settings  # type: ignore[reportMissingImports, import-not-found]
 
 
-# ── ChromaDB persistent client ─────────────────────────────────
+# ChromaDB persistent client
 _chroma_client = None
 
 
@@ -48,7 +48,7 @@ def _get_collection(project_id: str):
     )
 
 
-# ── Gemini Embedding ───────────────────────────────────────────
+# Gemini Embedding 
 def _embed(texts: list, task_type: str = "RETRIEVAL_DOCUMENT") -> list:
     """Converts text list to embedding vectors using Gemini."""
     from google import genai
@@ -69,7 +69,7 @@ def _embed(texts: list, task_type: str = "RETRIEVAL_DOCUMENT") -> list:
     return embeddings
 
 
-# ── STORE — called right after analysis finishes ───────────────
+# STORE — called right after analysis finishes 
 def store_floor_plan_data(project_id: str, project_name: str,
                           rooms: list, total_area_sqft: float,
                           detections: list) -> int:
@@ -89,7 +89,7 @@ def store_floor_plan_data(project_id: str, project_name: str,
     ids       = []
     metadatas = []
 
-    # ── Per-room documents ─────────────────────────────────────
+    # Per-room documents 
     for i, room in enumerate(rooms):
         name    = room.get("name", f"Room {i+1}")
         w_ft    = room.get("width_ft_in",  "unknown")
@@ -127,7 +127,7 @@ def store_floor_plan_data(project_id: str, project_name: str,
             "type":       "room",
         })
 
-    # ── Total area document ────────────────────────────────────
+    # Total area document 
     if total_area_sqft and total_area_sqft > 0:
         total_sqm = round(total_area_sqft * 0.092903, 2)
         documents.append(
@@ -137,7 +137,7 @@ def store_floor_plan_data(project_id: str, project_name: str,
         ids.append(f"{project_id}_total_area")
         metadatas.append({"project_id": project_id, "type": "total_area"})
 
-    # ── Structural counts document ─────────────────────────────
+    # Structural counts document 
     if detections:
         # detections can be DetectionDTO objects or dicts
         def get_label(d):
@@ -154,7 +154,7 @@ def store_floor_plan_data(project_id: str, project_name: str,
         ids.append(f"{project_id}_structural")
         metadatas.append({"project_id": project_id, "type": "structural"})
 
-    # ── Design suggestions document ────────────────────────────
+    # Design suggestions document 
     suggestions = _build_design_suggestions(rooms, project_name)
     if suggestions:
         documents.append(suggestions)
@@ -231,7 +231,7 @@ def _build_design_suggestions(rooms: list, project_name: str) -> str:
     return " ".join(suggestions)
 
 
-# ── SEARCH — called when client asks a question ────────────────
+# SEARCH - called when client asks a question
 def search_floor_plan_data(project_id: str, question: str,
                            top_k: int = 3) -> str:
     """
@@ -265,7 +265,7 @@ def search_floor_plan_data(project_id: str, question: str,
         return ""
 
 
-# ── DELETE — called when project is deleted ────────────────────
+# DELETE - called when project is deleted 
 def delete_floor_plan_data(project_id: str) -> None:
     """Removes the ChromaDB collection for a deleted project."""
     try:
