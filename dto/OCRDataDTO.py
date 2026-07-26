@@ -1,6 +1,5 @@
 """
 SmartArch — dto/OCRDataDTO.py
-Holds the raw output from the OCR engine (EasyOCR).
 """
 from dataclasses import dataclass, field
 from typing import List
@@ -39,3 +38,9 @@ class OCRDataDTO:
     # Every text found, each item:
     # {"text": "...", "confidence": 0.9, "center_x": .., "center_y": ..,
     #  "bbox": [x1,y1,x2,y2]}
+
+    # Example entry:
+    #   {"name": "BED ROOM 01", "width_text": "10'1\"", "height_text": "12'5\"",
+    #    "x1": 45, "y1": 80, "x2": 280, "y2": 350,
+    #    "label_x": 160, "label_y": 200, "confidence": 0.95}
+    room_pairs: List[dict] = field(default_factory=list)

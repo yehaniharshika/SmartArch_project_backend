@@ -36,7 +36,7 @@ from dto.DetectionDTO import DetectionDTO
 
 from services.extraction import yolo_service
 from services.extraction import ocr_service
-from services.extraction import gemini_ocr_service
+from services.extraction import trained_ocr_service
 from services.extraction import room_boundary_service
 from services.extraction import room_parser_service
 from services.extraction import area_service
@@ -116,7 +116,7 @@ class FloorPlanService:
 
         # STEP 6: Text extraction — Gemini Vision primary, EasyOCR fallback
         try:
-            ocr_data = gemini_ocr_service.extract_text_gemini(img)
+            ocr_data = trained_ocr_service.extract_text_gemini(img)
             ocr_engine_used = "gemini_vision"
         except Exception as e:
             print(f"[WARN] Gemini Vision failed: {e} — falling back to EasyOCR")
@@ -255,10 +255,7 @@ class FloorPlanService:
         print("[RAG] ✅ Plan indexed and ready for chatbot")
         return result
 
-    # ──────────────────────────────────────────────────────────
     # Helper methods — unchanged from your original
-    # ──────────────────────────────────────────────────────────
-
     @staticmethod
     def _load_image(project_id, file_path, ext):
         if ext == "pdf":
@@ -330,16 +327,17 @@ class FloorPlanService:
             cv2.putText(img, f"{d.label} {d.confidence*100:.0f}%",
                         (int(d.x1)+4, int(d.y1)-6),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
-
+            
+        room_color_bgr = (247, 85, 168)
         for room in rooms:
             cv2.rectangle(img,
                 (int(room.bbox_x1), int(room.bbox_y1)),
                 (int(room.bbox_x2), int(room.bbox_y2)),
-                (0, 200, 255), 2)
+                room_color_bgr, 2)
             label_text = f"{room.name} {room.width_ft_in}x{room.height_ft_in}"
             cv2.putText(img, label_text,
                         (int(room.bbox_x1)+4, int(room.bbox_y1)+18),
-                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 200, 255), 1,
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.42, room_color_bgr, 1,
                         cv2.LINE_AA)
 
         out_path = str(Config.UPLOAD_DIR / f"{project_id}_annotated.jpg")
@@ -381,10 +379,6 @@ class FloorPlanService:
               f"({result.total_area_sqm} m²){RESET}")
         print(f"  {GR}{'Image size':<26}{RESET}"
               f"{result.image_width_px}x{result.image_height_px}px")
-        print(f"  {GR}{'Scale':<26}{RESET}"
-              f"{result.pixels_per_foot:.2f} px/ft "
-              f"({result.scale_method}, "
-              f"confidence={result.scale_confidence:.2f})")
         print(f"  {GR}{'Processing time':<26}{RESET}"
               f"{result.processing_time}s")
         print(f"\n{BL}{B}  STRUCTURAL ELEMENTS{RESET}")
@@ -394,13 +388,12 @@ class FloorPlanService:
         print(f"\n{P}{B}  ROOMS ({result.room_count} found){RESET}")
         if result.rooms:
             print(f"  {GR}{'Room':<22}{'Width':>10}"
-                  f"{'Height':>10}{'Sq.Ft':>10}{'Source':>32}{RESET}")
+                  f"{'Height':>10}{'Sq.Ft':>10}{RESET}")
             print(f"  {GR}{'-'*84}{RESET}")
             for room in result.rooms:
                 print(f"  {room.name:<22}{room.width_ft_in:>10}"
                       f"{room.height_ft_in:>10}"
-                      f"{str(room.area_sqft):>10}"
-                      f"{room.dimension_source:>32}")
+                      f"{str(room.area_sqft):>10}")
         else:
             print(f"  {Y}No rooms identified — see warnings.{RESET}")
         if result.pipeline_warnings:

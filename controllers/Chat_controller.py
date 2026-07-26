@@ -31,7 +31,7 @@ from utils.auth_utils import token_required
 chat_bp = Blueprint("chat", __name__, url_prefix="/api/chat")
 
 
-# ── Architect asks (JWT required) ─────────────────────────────
+# Architect asks (JWT required)
 @chat_bp.route("/<string:project_id>/ask", methods=["POST"])
 @token_required
 def ask_question(project_id: str):
@@ -50,7 +50,7 @@ def ask_question(project_id: str):
     return jsonify(result), status
 
 
-# ── Chat history (JWT required) ────────────────────────────────
+# Chat history (JWT required)
 @chat_bp.route("/<string:project_id>/history", methods=["GET"])
 @token_required
 def get_chat_history(project_id: str):
@@ -64,7 +64,7 @@ def get_chat_history(project_id: str):
     return jsonify(result), status
 
 
-# ── Client asks via share link (NO JWT needed) ─────────────────
+# Client asks via share link (NO JWT needed)
 @chat_bp.route("/share/<string:token>/ask", methods=["POST"])
 def client_ask(token: str):
     """
@@ -105,7 +105,7 @@ def client_ask(token: str):
     return jsonify(result), status
 
 
-# ── Clear history (optional, for testing) ─────────────────────
+# Clear history (optional, for testing)
 @chat_bp.route("/<string:project_id>/history", methods=["DELETE"])
 @token_required
 def clear_history(project_id: str):

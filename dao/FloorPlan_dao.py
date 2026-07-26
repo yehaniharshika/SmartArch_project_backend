@@ -6,7 +6,9 @@ from entity.FloorPlan_entity import FloorPlan
 from entity.Detection_entity import Detection
 from entity.OcrResult_entity import OCRResult
 from entity.ChatMessage_entity import ChatMessage
+from entity.Room_entity import Room                    # ← NEW IMPORT
 from dto.AnalysisResultDTO import AnalysisResultDTO
+
 
 class FloorPlanDAO:
 
@@ -27,12 +29,13 @@ class FloorPlanDAO:
         db.session.commit()
         return fp
 
-    # ── Save full analysis result ───────────────────────────
+    # Save full analysis result 
     @staticmethod
     def save_analysis_results(result: AnalysisResultDTO) -> FloorPlan | None:
         """
         Update the FloorPlan row with all extracted data.
-        Also inserts one Detection row per detection and one OCRResult row.
+        Also inserts one Detection row per detection, one OCRResult
+        row, and one Room row per parsed room.
         """
         fp = db.session.get(FloorPlan, result.project_id)
         if not fp:
@@ -84,8 +87,7 @@ class FloorPlanDAO:
         # Save OCR result
         if result.ocr_data:
             OCRResult.query.filter_by(project_id=result.project_id).delete()
-            
-            # 💥 FIX: Serialize python lists/dicts to JSON strings for SQLite compatibility
+
             ocr_row = OCRResult(
                 project_id  = result.project_id,
                 room_labels = json.dumps(result.ocr_data.room_labels),
@@ -93,6 +95,34 @@ class FloorPlanDAO:
                 raw_texts   = json.dumps(result.ocr_data.raw_texts),
             )
             db.session.add(ocr_row)
+
+        # ══════════════════════════════════════════════════════
+        # NEW — Save rooms (previously computed by room_parser_service
+        # + area_service but never persisted to the database)
+        # ══════════════════════════════════════════════════════
+        Room.query.filter_by(project_id=result.project_id).delete()
+        for room in result.rooms:
+            room_row = Room(
+                project_id             = result.project_id,
+                name                   = room.name,
+                room_type              = room.room_type,
+                width_ft               = room.width_ft,
+                height_ft              = room.height_ft,
+                width_ft_in            = room.width_ft_in,
+                height_ft_in           = room.height_ft_in,
+                width_m                = room.width_m,
+                height_m               = room.height_m,
+                area_sqft              = room.area_sqft,
+                area_sqm               = room.area_sqm,
+                bbox_x1                = room.bbox_x1,
+                bbox_y1                = room.bbox_y1,
+                bbox_x2                = room.bbox_x2,
+                bbox_y2                = room.bbox_y2,
+                dimension_source       = room.dimension_source,
+                label_match_confidence = room.label_match_confidence,
+                notes                  = getattr(room, "notes", None),
+            )
+            db.session.add(room_row)
 
         db.session.commit()
         return fp
@@ -107,7 +137,7 @@ class FloorPlanDAO:
             fp.updated_at    = datetime.utcnow()
             db.session.commit()
 
-    # Read 
+    # Read
     @staticmethod
     def get_by_id(project_id: str) -> FloorPlan | None:
         return db.session.get(FloorPlan, project_id)
@@ -130,6 +160,14 @@ class FloorPlanDAO:
     def get_ocr(project_id: str) -> OCRResult | None:
         return OCRResult.query.filter_by(project_id=project_id).first()
 
+    # NEW — Get rooms for a project
+    @staticmethod
+    def get_rooms(project_id: str) -> list[Room]:
+        return (Room.query
+                .filter_by(project_id=project_id)
+                .order_by(Room.id)
+                .all())
+
     # Share token management
     @staticmethod
     def save_share_token(project_id: str, token: str,
@@ -146,7 +184,7 @@ class FloorPlanDAO:
     def get_by_share_token(token: str) -> FloorPlan | None:
         return FloorPlan.query.filter_by(share_token=token).first()
 
-    # Delete a floor plan and all related data (detections, OCR, chat messages)
+    # Delete a floor plan and all related data (detections, OCR, chat, rooms)
     @staticmethod
     def delete(project_id: str) -> bool:
         fp = db.session.get(FloorPlan, project_id)

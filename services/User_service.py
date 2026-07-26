@@ -18,7 +18,7 @@ EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 
 class UserService:
 
-    # ── Register ─────────────────────────────────────────
+    # Register 
     @staticmethod
     def register_user(data: dict) -> tuple[dict, int]:
         full_name = (data.get("full_name") or "").strip()

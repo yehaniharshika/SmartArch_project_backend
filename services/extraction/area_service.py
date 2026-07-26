@@ -18,7 +18,7 @@ Strategy (priority order):
      or typical width:height ratio, so guessing would be misleading.
 """
 from dto.RoomDTO import RoomDTO
-from services.extraction.gemini_ocr_service import parse_feet_inches
+from services.extraction.trained_ocr_service import parse_feet_inches
 
 
 def decimal_feet_to_ft_in(decimal_feet: float) -> str:
