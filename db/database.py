@@ -10,6 +10,7 @@ def init_db(app):
         from entity.OcrResult_entity import OCRResult
         from entity.ProjectToken_entity import ProjectToken
         from entity.ChatMessage_entity import ChatMessage
+        from entity.Room_entity import Room
 
         db.create_all()
         print("✅ Database tables initialized successfully!")

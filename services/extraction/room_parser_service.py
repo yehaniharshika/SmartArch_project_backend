@@ -21,7 +21,7 @@ from dto.RoomDTO import RoomDTO
 from dto.OCRDataDTO import OCRDataDTO
 
 
-# ── Room type classification ────────────────────────────────────────────────
+# Room type classification
 ROOM_TYPE_MAP = {
     "bedroom":   ["BED ROOM", "BEDROOM", "MASTER BED", "VISITOR BED", "GUEST BED"],
     "bathroom":  ["BATH ROOM", "BATHROOM", "TOILET", "WC", "WASH ROOM"],
@@ -92,10 +92,7 @@ def _find_overlapping_boundary(lx: float, ly: float, room_boundaries: list):
     return None
 
 
-# ════════════════════════════════════════════════════════════════════════
 # MAIN ENTRY POINT
-# ════════════════════════════════════════════════════════════════════════
-
 def build_room_objects(room_boundaries: list, ocr_data: OCRDataDTO) -> list:
     """
     Main entry point — called by FloorPlan_service.
@@ -129,9 +126,6 @@ def _build_pairs(room_pairs: list, room_boundaries: list) -> list:
         label_x = pair.get("label_x", (x1 + x2) / 2)
         label_y = pair.get("label_y", (y1 + y2) / 2)
 
-        # Collect ONLY the dimensions Gemini itself paired with THIS
-        # room — no proximity search, no risk of stealing a neighbour's
-        # dimension text.
         matched_dims = [t for t in (width_text, height_text) if t]
 
         # Optional geometry refinement: if a real wall-boundary region

@@ -41,3 +41,5 @@ class ProjectToken(db.Model):
 
     def __repr__(self):
         return f"<ProjectToken id={self.id} project_id={self.project_id}>"
+
+    

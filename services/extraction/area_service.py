@@ -4,25 +4,13 @@ SmartArch — services/extraction/area_service.py
 ONLY job: given a RoomDTO (boundary geometry + matched OCR dimension
 texts already attached), compute the FINAL real-world width, height,
 and area.
-
-Strategy (priority order):
-  1. If OCR found 2+ dimension texts near this room, USE THOSE DIRECTLY.
-  2. If OCR found exactly 1, estimate the other side from the room's
-     pixel-bbox aspect ratio (only valid if that bbox came from a real
-     wall-boundary contour, not a guess).
-  3. If none found AND the bbox is a real boundary (non-zero size),
-     fall back to pixel-bbox + scale — flagged as an ESTIMATE.
-  4. If none found AND there's no real bbox either (zero-size),
-     report 0 and mark dimension_source="unmatched" — we do NOT
-     invent a size. There is no rule that any room type has a fixed
-     or typical width:height ratio, so guessing would be misleading.
 """
 from dto.RoomDTO import RoomDTO
 from services.extraction.trained_ocr_service import parse_feet_inches
 
-
+# Convert decimal feet into readable format.
 def decimal_feet_to_ft_in(decimal_feet: float) -> str:
-    """12.5 -> "12' 6\"" """
+    
     if decimal_feet <= 0:
         return "0' 0\""
     feet = int(decimal_feet)
@@ -32,9 +20,8 @@ def decimal_feet_to_ft_in(decimal_feet: float) -> str:
         inches = 0
     return f"{feet}' {inches}\""
 
-
+# Fills in room.width_ft_in, height_ft_in, area_sqft, etc. Mutates and returns the same RoomDTO.
 def calculate_room_dimensions(room: RoomDTO, pixels_per_foot: float) -> RoomDTO:
-    """Fills in room.width_ft_in, height_ft_in, area_sqft, etc. Mutates and returns the same RoomDTO."""
 
     feet_values = sorted(
         [v for v in (parse_feet_inches(d) for d in room.matched_dimension_texts) if v > 0],

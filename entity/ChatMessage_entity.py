@@ -11,7 +11,7 @@ class ChatMessage(db.Model):
         db.ForeignKey("floor_plan_projects.id", ondelete="CASCADE"),
         nullable=False, index=True,
     )
-    question   = db.Column(db.Text, nullable=False)   # ← "query" වෙනුවට "question"
+    question   = db.Column(db.Text, nullable=False) 
     answer     = db.Column(db.Text, nullable=False)
     language   = db.Column(db.String(10), nullable=True, default="en")
     model_used = db.Column(db.String(50), nullable=True)

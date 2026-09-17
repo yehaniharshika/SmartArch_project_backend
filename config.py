@@ -75,8 +75,8 @@ class Config:
     # ── Detection class metadata ─────────────────────────────
     CLASS_META = {
         "door":        {"emoji": "🚪", "color": "#EF4444", "type": "opening"},   # was #EF5350
-    "window":      {"emoji": "🪟", "color": "#22C55E", "type": "opening"},   # was #42A5F5
-    "wall":        {"emoji": "🧱", "color": "#3B82F6", "type": "structure"}, # was #78909C
+        "window":      {"emoji": "🪟", "color": "#22C55E", "type": "opening"},   # was #42A5F5
+        "wall":        {"emoji": "🧱", "color": "#3B82F6", "type": "structure"}, # was #78909C
         "room":        {"emoji": "🏠", "color": "#FFA726", "type": "space"},
         "bedroom":     {"emoji": "🛏️",  "color": "#AB47BC", "type": "space"},
         "bathroom":    {"emoji": "🛁", "color": "#26C6DA", "type": "space"},
