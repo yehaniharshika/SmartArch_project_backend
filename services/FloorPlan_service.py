@@ -324,7 +324,7 @@ class FloorPlanService:
             hex_color = meta.get("color", "#888888").lstrip("#")
             color = (int(hex_color[4:6], 16), int(hex_color[2:4], 16), int(hex_color[0:2], 16))
             cv2.rectangle(img, (int(d.x1), int(d.y1)), (int(d.x2), int(d.y2)), color, 2)
-            cv2.putText(img, f"{d.label} {d.confidence*100:.0f}%",
+            cv2.putText(img, f"{d.label}",
                        (int(d.x1)+4, int(d.y1)-6),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
 
