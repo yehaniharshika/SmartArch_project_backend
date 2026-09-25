@@ -1,47 +1,11 @@
 """
 SmartArch — services/extraction/room_boundary_service.py
 
-THIS IS THE MISSING PIECE that was causing wrong dimensions.
-
-PROBLEM: YOLOv8 only detects individual wall SEGMENTS (small rectangles).
-         It has no concept of "this group of 4 walls forms one room".
-
-SOLUTION (this file): Use classic computer-vision morphology to find
-the ENCLOSED EMPTY AREAS between walls — these enclosed areas ARE
-the rooms. This is a deterministic geometry algorithm, not an AI
-guess, so it's explainable and reliable.
-
-KEY FIX (this version): doors and windows are now ALSO drawn onto the
-wall mask, not just walls. A door or window opening is a gap in the
-physical wall line — visually correct, but for ROOM-SEPARATION purposes
-it should still act as a barrier between two rooms. Two rooms sharing
-a doorway are still two separate rooms with two separate dimension
-labels; if we only draw "wall" detections, the doorway gap often breaks
-the loop wide enough that morphological closing can't bridge it, and
-the two rooms get merged into one big contour (or the loop never closes
-at all and the room leaks into the background). Treating door/window
-boxes as additional mask barriers keeps every room's loop closed.
-
-HOW IT WORKS (step by step):
-  1. Take the original floor-plan image.
-  2. Draw every YOLO-detected wall AND door/window onto a blank black
-     mask (white). Doors/windows close the gaps walls leave at openings.
-  3. "Close" any remaining small gaps using morphological closing
-     (for the tiny pixel-level misalignments between adjacent detections
-     that aren't full doorway-sized gaps).
-  4. Find all the CONTOURS (closed white-line loops) — each contour
-     that encloses a sensible-sized blank area is treated as one room.
-  5. Filter out contours that are too small (noise) or too large
-     (the whole building outline, not a room).
-
-This is the same general technique used in published floor-plan
-parsing research (e.g. Liu et al., "Raster-to-Vector", CVPR 2017) —
-using wall masks + contour detection to recover room polygons.
 """
 import cv2
 import numpy as np
 
-
+# Find the physicallyenclosed region / boundary of rooms, based on the detected walls and doors/windows. 
 def find_room_boundaries(img: np.ndarray, detections: list,
                          min_room_area_px: int = 2000,
                          max_room_area_ratio: float = 0.6) -> list:

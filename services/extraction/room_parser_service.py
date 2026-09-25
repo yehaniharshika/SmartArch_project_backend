@@ -2,24 +2,12 @@
 SmartArch — services/extraction/room_parser_service.py
 
 Two strategies, chosen automatically based on what the OCR engine gave us:
-
-  1. GEMINI PAIRS (preferred) — when ocr_data.room_pairs is populated,
-     each room's width/height dimension was ALREADY correctly associated
-     by Gemini itself (it read the drawing and matched them, same as a
-     human would). We trust this directly — no re-derivation, no radius
-     search, no risk of picking up a neighbouring room's dimension.
-
-  2. RADIUS SEARCH (fallback) — only used when ocr_data.room_pairs is
-     empty (i.e. the EasyOCR fallback path, which has no such structured
-     pairing, only a flat list of text regions). Here we must guess
-     associations by proximity, which is inherently weaker and can
-     mismatch compact/tightly-packed layouts.
 """
 import re
 import math
 from dto.RoomDTO import RoomDTO
 from dto.OCRDataDTO import OCRDataDTO
-
+# Build the room objects combining Room information
 
 # Room type classification
 ROOM_TYPE_MAP = {
