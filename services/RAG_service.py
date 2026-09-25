@@ -7,11 +7,6 @@ relevant chunks when a client asks a question.
 HOW IT WORKS:
   Store:    room data → text sentences → Gemini embeddings → ChromaDB
   Retrieve: question  → Gemini embedding → similarity search → context chunks
-
-NOTE: "models/text-embedding-004" was retired by Google (404 NOT_FOUND on
-embedContent). The current supported embedding model id is
-"gemini-embedding-001" — set via GEMINI_EMBED_MODEL in .env, with that
-value used as the code-level fallback too.
 """
 import os
 import chromadb  # type: ignore[import-not-found]
@@ -21,7 +16,7 @@ from chromadb.config import Settings  # type: ignore[reportMissingImports, impor
 # ChromaDB persistent client
 _chroma_client = None
 
-
+# This layer provide relevant floor-plan information to SmartArch chatbot
 def _get_client():
     global _chroma_client
     if _chroma_client is not None:
@@ -69,7 +64,7 @@ def _embed(texts: list, task_type: str = "RETRIEVAL_DOCUMENT") -> list:
     return embeddings
 
 
-# STORE — called right after analysis finishes 
+# Store the extracted floor plan data into ChromaDB 
 def store_floor_plan_data(project_id: str, project_name: str,
                           rooms: list, total_area_sqft: float,
                           detections: list) -> int:
@@ -178,7 +173,7 @@ def store_floor_plan_data(project_id: str, project_name: str,
     print(f"[RAG] ✅ Stored {len(documents)} documents for {project_id}")
     return len(documents)
 
-
+# Create general design suggestions according to the stored floor plan information
 def _build_design_suggestions(rooms: list, project_name: str) -> str:
     """Builds a design suggestions text chunk based on extracted rooms."""
     if not rooms:

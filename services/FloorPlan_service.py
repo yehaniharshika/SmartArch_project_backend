@@ -22,6 +22,7 @@ from services.extraction import area_service
 
 class FloorPlanService:
 
+    # Start the floor plan analysis.
     @staticmethod
     def upload_and_analyze(user_id: int, project_name: str, file) -> tuple:
         start_time = time.time()
@@ -84,7 +85,7 @@ class FloorPlanService:
         height, width = img.shape[:2]
         print(f"[IMAGE] Loaded {image_path} → {width}x{height}px")
 
-        # STEP 5: YOLO detection
+        # STEP 5: YOLO Structural Elements Detection
         try:
             raw_detections = yolo_service.detect_structural_elements(img)
         except Exception as e:
@@ -93,11 +94,6 @@ class FloorPlanService:
             raw_detections = []
 
         # STEP 6: Trained-YOLO + EasyOCR + Gemini-fallback OCR pipeline
-        # (ocr_service here is trained_ocr_service — see the import alias
-        # above — so this call already goes through the full pipeline:
-        # EasyOCR per crop, Gemini fallback on empty crops, and the
-        # cascade to plain ocr_service.extract_text() if too few regions
-        # fire at all.)
         try:
             ocr_data = ocr_service.extract_text(img)
         except Exception as e:
@@ -114,10 +110,9 @@ class FloorPlanService:
         pixels_per_foot = 15.0
 
         # STEP 8: Wall-boundary detection — now used ONLY to supply a
-        # real bbox (for annotated-image drawing / pixel-fallback area
-        # estimate) when a label happens to fall inside a detected
-        # region. It no longer gates or restricts which dimension texts
-        # a label is allowed to match (see room_parser_service).
+        # real bbox (for annotated-image drawing / pixel-fallback area estimate) when a label happens to fall inside a detected region. 
+        # It no longer gates or restricts which dimension texts a label is allowed to match (see room_parser_service).
+        # Summery - This identifies enclosed regions that can represent rooms.
         try:
             room_boundaries = room_boundary_service.find_room_boundaries(
                 img, raw_detections
@@ -133,7 +128,6 @@ class FloorPlanService:
             room_boundaries = []
 
         # STEP 9: LABEL-FIRST room building using GLOBAL nearest-match
-
         try:
             rooms = room_parser_service.build_room_objects(room_boundaries, ocr_data)
             if not rooms:
@@ -238,10 +232,7 @@ class FloorPlanService:
         access (room.get("name", ...)), but room_parser_service returns
         Room objects with attribute-style access (room.name,
         room.bbox_x1 — see _draw_annotations/_print_terminal_report
-        above). This bridges the two: prefer the object's own
-        to_dict() when it has one (the Room entity already defines
-        one, so this stays in sync automatically), otherwise fall back
-        to reading the specific fields RAG_service actually uses.
+        above).
         """
         dicts = []
         for room in rooms:
@@ -328,16 +319,7 @@ class FloorPlanService:
                        (int(d.x1)+4, int(d.y1)-6),
                        cv2.FONT_HERSHEY_SIMPLEX, 0.35, color, 1, cv2.LINE_AA)
 
-        for room in rooms:
-            cv2.rectangle(img,
-                (int(room.bbox_x1), int(room.bbox_y1)),
-                (int(room.bbox_x2), int(room.bbox_y2)),
-                (0, 200, 255), 2)
-            label_text = f"{room.name} {room.width_ft_in}x{room.height_ft_in}"
-            cv2.putText(img, label_text,
-                       (int(room.bbox_x1)+4, int(room.bbox_y1)+18),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.42, (0, 200, 255), 1, cv2.LINE_AA)
-
+        
         out_path = str(Config.UPLOAD_DIR / f"{project_id}_annotated.jpg")
         cv2.imwrite(out_path, img, [cv2.IMWRITE_JPEG_QUALITY, 92])
         print(f"[ANNOTATED] Saved → {Path(out_path).name}")

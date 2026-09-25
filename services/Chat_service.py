@@ -13,7 +13,9 @@ from services.RAG_service import search_floor_plan_data
 from services.AI_provider_service import generate_chat_answer
 from config import Config
 
-
+# When ask the question Question is validated and retrieve the relavant date from chroma DB
+# Send the retrieved data to gemini API to generate the answer and return the answer to the controller
+# And save the answer in database
 class ChatService:
 
     @staticmethod

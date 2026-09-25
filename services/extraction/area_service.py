@@ -1,13 +1,10 @@
 """
 SmartArch — services/extraction/area_service.py
-
-ONLY job: given a RoomDTO (boundary geometry + matched OCR dimension
-texts already attached), compute the FINAL real-world width, height,
-and area.
 """
 from dto.RoomDTO import RoomDTO
 from services.extraction.trained_ocr_service import parse_feet_inches
 
+# Calculate the area from room dimension
 # Convert decimal feet into readable format.
 def decimal_feet_to_ft_in(decimal_feet: float) -> str:
     

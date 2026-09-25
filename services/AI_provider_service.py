@@ -1,3 +1,10 @@
+# This service will include communication with the Gemini API
+# It will include
+# Genrate chatbot answer from the Gemini API
+# Generate tect embedding
+
+
+
 import os
 
 
@@ -88,13 +95,6 @@ def embed_text(text: str, task_type: str = "RETRIEVAL_DOCUMENT") -> list:
     """
     Converts a single text string into a Gemini embedding vector.
     Used by RAG_service.py for both storing and searching.
-
-    task_type options:
-      "RETRIEVAL_DOCUMENT" — for storing floor plan data
-      "RETRIEVAL_QUERY"    — for embedding client questions
-
-    NOTE: "text-embedding-004" / "embedding-001" were retired by Google.
-    The current supported embedding model is "gemini-embedding-001".
     """
     from google import genai
     from google.genai import types

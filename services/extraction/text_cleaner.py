@@ -1,18 +1,9 @@
 """
 SmartArch — services/extraction/text_cleaner.py
-
-clean_ocr_text() is for DIMENSION text only.
-NEVER apply it to room label text — O→0 / I→1 replacement corrupts
-labels (e.g. "TOILET"→"T0ILET", "LOBBY"→"1OBBY").
-
-clean_label_text() is the ROOM LABEL equivalent — it strips stray
-punctuation/bracket noise picked up from nearby plan annotations
-(e.g. "KITCHEN]" → "KITCHEN") without ever touching letters or
-digits, so it is always safe to use on label text.
 """
 import re
 
-
+# This method corrects common OCR errors in dimension text and normalises the dimension format.
 def clean_ocr_text(text: str) -> str:
     """
     Normalise DIMENSION text only (not labels).
